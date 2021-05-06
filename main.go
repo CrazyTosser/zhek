@@ -3,9 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/pgxpool"
 	"log"
-	"net/http"
 	"os"
 )
 
@@ -33,17 +32,6 @@ func main() {
 
 	log.Printf("Listening on sport %s", sport)
 	go initScanner(dbpool, cont, &cfg)
-	go ServiceUdp(ctx, "0.0.0.0", sport, dbpool, &cfg)
-	startServer()
-}
-
-func startServer() {
-	http.HandleFunc("/", indexHandler)
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-		log.Printf("Defaulting to port %s", port)
-	}
-	log.Printf("Open http://localhost:%s in the browser", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	go ServiceUdp(cont, "0.0.0.0", sport, dbpool, &cfg)
+	StartServer(dbpool, ctx)
 }
