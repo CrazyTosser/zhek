@@ -23,7 +23,7 @@ type Project struct {
 	Rn     int    `json:"rn"`
 	Code   string `json:"code"`
 	Params []struct {
-		Prn int     `json:"prn"`
+		Prn int     `json:"rn"`
 		Val float64 `json:"val"`
 	} `json:"params"`
 }
@@ -33,7 +33,7 @@ type Address struct {
 	Project int    `json:"prn"`
 	Code    string `json:"code"`
 	Params  []struct {
-		Prn int     `json:"prn"`
+		Prn int     `json:"rn"`
 		Val float64 `json:"val"`
 	} `json:"params"`
 }

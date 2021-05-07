@@ -53,10 +53,14 @@ func addressHandler(w http.ResponseWriter, r *http.Request) {
 				for q.Next() {
 					tmp := Address{}
 					q.Scan(&tmp.Rn, &tmp.Project, &tmp.Code)
-					q2, _ := db.Query(ctx, "select prn, val from address_param where arn = $1", tmp.Rn)
+					q2, err := db.Query(ctx, "select prn, val from address_param where arn = $1", tmp.Rn)
+					if err != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+					}
 					for q2.Next() {
 						t := struct {
-							Prn int     `json:"prn"`
+							Prn int     `json:"rn"`
 							Val float64 `json:"val"`
 						}{}
 						q2.Scan(&t.Prn, &t.Val)
@@ -79,7 +83,7 @@ func addressHandler(w http.ResponseWriter, r *http.Request) {
 			q.Next()
 			q.Scan(&tmp.Rn)
 			for _, param := range tmp.Params {
-				_, _ = db.Exec(ctx, "insert into address_params values ($1, $2, $3)", param.Prn, tmp.Rn, param.Val)
+				_, err = db.Exec(ctx, "insert into address_param values ($1, $2, $3)", param.Prn, tmp.Rn, param.Val)
 			}
 		}
 	case http.MethodPost:
@@ -98,8 +102,17 @@ func addressHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		tmp := Project{}
 		_ = decoder.Decode(&tmp)
-		_, _ = db.Query(ctx, "delete from address where rn = $1", tmp.Rn)
-		_, _ = db.Query(ctx, "delete from address_param where pjrn = $1", tmp.Rn)
+		_, err := db.Query(ctx, "delete from address where rn = $1", tmp.Rn)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+		} else {
+			_, err = db.Query(ctx, "delete from address_param where arn = $1", tmp.Rn)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+			}
+		}
 	}
 }
 
@@ -120,7 +133,7 @@ func projectHandler(w http.ResponseWriter, r *http.Request) {
 				q2, _ := db.Query(ctx, "select prn, val from project_param where pjrn = $1", tmp.Rn)
 				for q2.Next() {
 					t := struct {
-						Prn int     `json:"prn"`
+						Prn int     `json:"rn"`
 						Val float64 `json:"val"`
 					}{}
 					q2.Scan(&t.Prn, &t.Val)
@@ -143,7 +156,11 @@ func projectHandler(w http.ResponseWriter, r *http.Request) {
 			q.Next()
 			_ = q.Scan(&rn)
 			for _, param := range tmp.Params {
-				_, _ = db.Exec(ctx, "insert into project_param values ($1, $2, $3)", param.Prn, rn, param.Val)
+				_, err = db.Exec(ctx, "insert into project_param values ($1, $2, $3)", param.Prn, rn, param.Val)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+				}
 			}
 		}
 	case http.MethodPost:
