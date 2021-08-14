@@ -10,7 +10,7 @@
           <b-nav-item
             ><router-link to="/param">Параметры</router-link></b-nav-item
           >
-          <b-nav-item><router-link to="/test">Тест</router-link></b-nav-item>
+          <b-nav-item><router-link to="/test">События</router-link></b-nav-item>
         </b-navbar-nav>
       </b-collapse>
     </b-navbar>

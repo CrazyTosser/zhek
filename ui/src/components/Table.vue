@@ -5,10 +5,11 @@
       :fields="fields"
       :items="items"
       hover
+      :selectable="main"
       select-mode="single"
-      selectable
       striped
       @row-selected="select"
+      selected-variant="primary"
     >
       <template #table-caption
         ><p class="text-center">{{ caption }}</p></template
@@ -31,7 +32,7 @@
         <b-form-group label="Параметры">
           <b-input-group>
             <b-form-select v-model="form.select">
-              <b-form-select-option v-for="c in cparam" :value="c">{{
+              <b-form-select-option v-for="c in cparam" :value="c" :key="c">{{
                 c.code
               }}</b-form-select-option>
             </b-form-select>
@@ -45,7 +46,7 @@
         </b-form-group>
         <b-form-group v-if="form.params.length > 0">
           <b-list-group>
-            <b-list-group-item v-for="(el, i) in form.params">
+            <b-list-group-item v-for="(el, i) in form.params" :key="i">
               <b-input-group>
                 <b-form-input :value="el.code" disabled />
                 <b-form-input
@@ -114,7 +115,7 @@ export default {
       if (this.items === null) this.items = [];
     },
     select(row) {
-      if (this.main) this.$emit("select", row[0].rn);
+      if (this.main && row.length > 0) this.$emit("select", row[0].rn);
     },
     show(i) {
       if (i > -1) {

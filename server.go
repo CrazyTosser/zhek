@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/jackc/pgx/pgxpool"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"math"
 	"net"
 	"strconv"
@@ -35,7 +35,7 @@ func initScanner(pool *pgxpool.Pool, ctx context.Context, config *Config) {
 			control[i] = append(control[i], p)
 		}
 		//fill device map
-		query, err = pool.Query(ctx, "select d.rn, d.uid, d.crn, l.arn from devices d "+
+		query, err = pool.Query(ctx, "select d.rn, d.uid, d.crn, l.rn from devices d "+
 			"inner join location l on d.rn = l.drn")
 		if err != nil {
 			return
@@ -54,7 +54,8 @@ func initScanner(pool *pgxpool.Pool, ctx context.Context, config *Config) {
 }
 
 func ServiceUdp(ctx context.Context, address string, port string, pool *pgxpool.Pool, config *Config) {
-	pc, err := net.ListenPacket("udp", fmt.Sprint("{}:{}", address, port))
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", address, port))
+	pc, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return
 	}
@@ -83,15 +84,7 @@ func parseAndSave(ctx context.Context, pool *pgxpool.Pool, buf []byte, conf *Con
 		return
 	}
 	if d, ex := conf.Devices[string(uid[:])]; ex {
-		q, err := pool.Query(ctx, "insert into location(drn, arn) values (?, ?) returning rn", d.Rn, d.Address)
-		if err != nil {
-			return
-		}
-		if !q.Next() {
-			return
-		}
-		lrn := 0
-		_ = q.Scan(&lrn)
+		lrn := d.Address
 		// Process packet from device
 		var stack []Param //stack for calculating parameters
 		for _, param := range d.Schema {

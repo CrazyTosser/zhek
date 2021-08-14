@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/jackc/pgx/pgxpool"
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"html/template"
 	"log"
 	"net/http"
@@ -20,14 +21,18 @@ var (
 func StartServer(p *pgxpool.Pool, cont context.Context) {
 	db = p
 	ctx = cont
-	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./ui/dist/js"))))
-	http.Handle("/img/", http.StripPrefix("/img/", http.FileServer(http.Dir("./ui/dist/img"))))
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/param", paramHandler)
-	http.HandleFunc("/controller", controllerHandler)
-	http.HandleFunc("/device", deviceHandler)
-	http.HandleFunc("/project", projectHandler)
-	http.HandleFunc("/address", addressHandler)
+	router := mux.NewRouter()
+	router.PathPrefix("/js/").Handler(http.StripPrefix("/js/", http.FileServer(http.Dir("./ui/dist/js"))))
+	router.PathPrefix("/css/").Handler(http.StripPrefix("/css/", http.FileServer(http.Dir("./ui/dist/css"))))
+	router.HandleFunc("/", indexHandler)
+	router.HandleFunc("/param", paramHandler)
+	router.HandleFunc("/controller", controllerHandler)
+	router.HandleFunc("/device", deviceHandler)
+	router.HandleFunc("/project", projectHandler)
+	router.HandleFunc("/address", addressHandler)
+	router.HandleFunc("/event", eventHandler)
+	router.HandleFunc("/statistic", statisticHandler)
+	http.Handle("/", router)
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -35,6 +40,43 @@ func StartServer(p *pgxpool.Pool, cont context.Context) {
 	}
 	log.Printf("Open http://localhost:%s in the browser", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+}
+
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	tmpl, err := template.ParseFiles("ui/dist/index.html")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	_ = tmpl.Execute(w, nil)
+}
+
+func statisticHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func eventHandler(w http.ResponseWriter, r *http.Request) {
+	q, err := db.Query(ctx, "select rn, code, event from event")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+	} else {
+		var res []interface{}
+		for q.Next() {
+			t := struct {
+				Rn    int    `json:"rn"`
+				Code  string `json:"code"`
+				Event string `json:"event"`
+			}{}
+			_ = q.Scan(&t.Rn, &t.Code, &t.Event)
+			res = append(res, t)
+		}
+		out, _ := json.Marshal(res)
+		_, _ = w.Write(out)
+	}
 }
 
 func addressHandler(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +142,7 @@ func addressHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case http.MethodDelete:
-		tmp := Project{}
+		tmp := Address{}
 		_ = decoder.Decode(&tmp)
 		_, err := db.Query(ctx, "delete from address where rn = $1", tmp.Rn)
 		if err != nil {
@@ -111,6 +153,25 @@ func addressHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+			}
+		}
+	case http.MethodOptions:
+		var res []interface{}
+		q, err := db.Query(ctx, "select rn, code from address")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+		} else {
+			for q.Next() {
+				tmp := struct {
+					Rn   int    `json:"value"`
+					Code string `json:"text"`
+				}{}
+				_ = q.Scan(&tmp.Rn, &tmp.Code)
+				res = append(res, tmp)
+			}
+			if out, err := json.Marshal(res); err == nil {
+				_, _ = w.Write(out)
 			}
 		}
 	}
@@ -202,7 +263,88 @@ func projectHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deviceHandler(w http.ResponseWriter, r *http.Request) {
-
+	defer r.Body.Close()
+	decoder := json.NewDecoder(r.Body)
+	switch r.Method {
+	case http.MethodGet:
+		var res []interface{}
+		ids, ok := r.URL.Query()["id"]
+		if id, err := strconv.Atoi(ids[0]); ok && err == nil {
+			q, err := db.Query(ctx, "select d.rn, d.comment, d.uid, a.rn, a.code\nfrom devices d inner join location l on d.rn = l.drn inner join address a on a.rn = l.arn\nwhere d.crn = $1", id)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+			} else {
+				for q.Next() {
+					tmp := struct {
+						Rn      int    `json:"rn"`
+						Uid     string `json:"uid"`
+						Comment string `json:"comment"`
+						Address struct {
+							Rn   int    `json:"value"`
+							Code string `json:"text"`
+						} `json:"address"`
+					}{}
+					_ = q.Scan(&tmp.Rn, &tmp.Comment, &tmp.Uid, &tmp.Address.Rn, &tmp.Address.Code)
+					res = append(res, tmp)
+				}
+				if out, err := json.Marshal(res); err == nil {
+					_, _ = w.Write(out)
+				}
+			}
+		}
+	case http.MethodPut:
+		tmp := struct {
+			Rn      int
+			Crn     int    `json:"crn"`
+			Uid     string `json:"uid"`
+			Comment string `json:"comment"`
+			Arn     int    `json:"arn"`
+		}{}
+		_ = decoder.Decode(&tmp)
+		q, err := db.Query(ctx, "insert into devices (crn, comment, uid) VALUES ($1, $2, $3) returning rn",
+			tmp.Crn, tmp.Comment, tmp.Uid)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+		} else {
+			q.Next()
+			q.Scan(&tmp.Rn)
+			_, err := db.Query(ctx, "insert into location(drn, arn) VALUES ($1, $2)", tmp.Rn, tmp.Arn)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+			}
+		}
+	case http.MethodPost:
+		tmp := struct {
+			Rn      int    `json:"rn"`
+			Crn     int    `json:"crn"`
+			Uid     string `json:"uid"`
+			Comment string `json:"comment"`
+			Arn     int    `json:"arn"`
+		}{}
+		_ = decoder.Decode(&tmp)
+		_, err := db.Query(ctx, "update devices set crn = $1, comment = $2, uid = $3 where rn = $4",
+			tmp.Crn, tmp.Comment, tmp.Uid, tmp.Rn)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+		} else {
+			_, err := db.Query(ctx, "insert into location(drn, arn) VALUES ($1, $2)", tmp.Rn, tmp.Arn)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(fmt.Sprint(err.Error())))
+			}
+		}
+	case http.MethodDelete:
+		tmp := struct {
+			Rn int `json:"rn"`
+		}{}
+		_ = decoder.Decode(&tmp)
+		_, _ = db.Query(ctx, "delete from devices where rn = $1", tmp.Rn)
+		_, _ = db.Query(ctx, "delete from location where drn = $1", tmp.Rn)
+	}
 }
 
 func controllerHandler(w http.ResponseWriter, r *http.Request) {
@@ -273,18 +415,6 @@ func controllerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	tmpl, err := template.ParseFiles("ui/dist/index.html")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	_ = tmpl.Execute(w, nil)
-}
-
 func paramHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	decoder := json.NewDecoder(r.Body)
@@ -292,7 +422,7 @@ func paramHandler(w http.ResponseWriter, r *http.Request) {
 	_ = decoder.Decode(&param)
 	switch r.Method {
 	case http.MethodGet:
-		q, err := db.Query(ctx, "select rn, code, formula from parameter")
+		q, err := db.Query(ctx, "select rn, code, formula from parameter where formula is null")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("500 - Something bad happened!"))
